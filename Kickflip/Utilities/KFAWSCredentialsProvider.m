@@ -21,15 +21,16 @@
     return self;
 }
 
-/**
- *  Refresh the token associated with this provider.
- *
- *  *Note* This method is automatically called by the AWS Mobile SDK for iOS, and you do not need to call this method in general.
- *
- *  @return BFTask.
- */
-- (AWSTask *)refresh {
-    return [AWSTask taskWithError:[NSError errorWithDomain:@"io.kickflip.sdk" code:100 userInfo:@{NSLocalizedDescriptionKey: @"Refresh not supported"}]];
+- (AWSTask<AWSCredentials *> *)credentials {
+    AWSCredentials *credentials = [[AWSCredentials alloc] initWithAccessKey:self.accessKey
+                                                                  secretKey:self.secretKey
+                                                                 sessionKey:self.sessionKey
+                                                                 expiration:self.expiration];
+    return [AWSTask taskWithResult:credentials];
+}
+
+- (void)invalidateCachedTemporaryCredentials {
+    // It's not clear for now how to proceed here. Do nothing.
 }
 
 /** Utility to convert from "us-west-1" to enum AWSRegionUSWest1 */

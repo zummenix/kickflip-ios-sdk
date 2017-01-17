@@ -33,13 +33,20 @@
 @property (nonatomic, strong, readonly) NSDate *expiration;
 
 /**
- *  Refresh the token associated with this provider.
+ *  Asynchronously returns a valid AWS credentials.
  *
  *  *Note* This method is automatically called by the AWS Mobile SDK for iOS, and you do not need to call this method in general.
  *
  *  @return BFTask.
  */
-- (AWSTask *)refresh;
+- (AWSTask<AWSCredentials *> *)credentials;
+
+/**
+ *  *Note* This method is automatically called by the AWS Mobile SDK for iOS, and you do not need to call this method in general.
+ *
+ *  @return BFTask.
+ */
+- (void)invalidateCachedTemporaryCredentials;
 
 - (instancetype)initWithStream:(KFS3Stream*)stream;
 
