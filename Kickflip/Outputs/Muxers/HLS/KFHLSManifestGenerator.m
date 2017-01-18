@@ -17,7 +17,7 @@
 @implementation KFHLSManifestGenerator
 
 - (NSMutableString*) header {
-    NSMutableString *header = [NSMutableString stringWithFormat:@"#EXTM3U\n#EXT-X-VERSION:%lu\n#EXT-X-TARGETDURATION:%g\n", (unsigned long)self.version, self.targetDuration];
+    NSMutableString *header = [NSMutableString stringWithFormat:@"#EXTM3U\n#EXT-X-VERSION:%lu\n#EXT-X-TARGETDURATION:%d\n", (unsigned long)self.version, (int)ceil(self.targetDuration)];
     NSString *type = nil;
     if (self.playlistType == KFHLSManifestPlaylistTypeVOD) {
         type = @"VOD";
@@ -84,12 +84,17 @@
     if (lines.count < 6) {
         return;
     }
+
+    // Extract duration of the file, for `#EXTINF:6.903822,` it will be 6.903822.
+    float duration = 0.0;
     NSString *extInf = lines[lines.count-2];
-    NSString *extInfNumberString = [self stripToNumbers:extInf];
+    [[self scannerWithString:extInf] scanFloat:&duration];
+
+    // Extract sequence number of the file, for example for `index1.ts` it will be 1.
+    NSInteger sequence = 0;
     NSString *segmentName = lines[lines.count-1];
-    NSString *segmentNumberString = [self stripToNumbers:segmentName];
-    float duration = [extInfNumberString floatValue];
-    NSInteger sequence = [segmentNumberString integerValue];
+    [[self scannerWithString:segmentName] scanInteger:&sequence];
+
     if (sequence > self.mediaSequence) {
         [self appendFileName:segmentName duration:duration mediaSequence:sequence];
     }
@@ -103,6 +108,13 @@
     }
     DDLogInfo(@"Latest manifest:\n%@", manifest);
     return manifest;
+}
+
+/// Returns scanner that can extract only numbers.
+- (NSScanner *)scannerWithString:(NSString *)string {
+    NSScanner *scanner = [[NSScanner alloc] initWithString:string];
+    scanner.charactersToBeSkipped = [[NSCharacterSet decimalDigitCharacterSet] invertedSet];
+    return scanner;
 }
 
 @end
