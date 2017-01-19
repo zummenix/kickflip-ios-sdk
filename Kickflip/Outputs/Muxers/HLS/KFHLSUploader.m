@@ -42,7 +42,6 @@ static NSString * const kKFS3Key = @"kKFS3Key";
 @property (nonatomic) BOOL manifestReady;
 @property (nonatomic, strong) NSString *finalManifestString;
 @property (nonatomic) BOOL isFinishedRecording;
-@property (nonatomic) BOOL hasUploadedFinalManifest;
 @end
 
 @implementation KFHLSUploader
@@ -74,21 +73,16 @@ static NSString * const kKFS3Key = @"kKFS3Key";
         self.transferManager = [AWSS3TransferManager S3TransferManagerForKey:kKFS3TransferManagerKey];
         self.s3 = [AWSS3 S3ForKey:kKFS3Key];
         
-        self.manifestGenerator = [[KFHLSManifestGenerator alloc] initWithTargetDuration:10 playlistType:KFHLSManifestPlaylistTypeVOD];
+        self.manifestGenerator = [[KFHLSManifestGenerator alloc] initWithPlaylistType:KFHLSManifestPlaylistTypeVOD];
     }
     return self;
 }
 
 - (void) finishedRecording {
     self.isFinishedRecording = YES;
-    if (!self.hasUploadedFinalManifest) {
-        NSString *manifestSnapshot = [self manifestSnapshot];
-        DDLogInfo(@"final manifest snapshot: %@", manifestSnapshot);
-        [self.manifestGenerator appendFromLiveManifest:manifestSnapshot];
-        [self.manifestGenerator finalizeManifest];
-        NSString *manifestString = [self.manifestGenerator manifestString];
-        [self updateManifestWithString:manifestString manifestName:kVODManifestFileName];
-    }
+    [self.manifestGenerator appendFromLiveManifest:[self manifestSnapshot]];
+    NSString *manifestString = [self.manifestGenerator finalizeManifest];
+    [self updateManifestWithString:manifestString manifestName:kVODManifestFileName];
 }
 
 - (void) setUseSSL:(BOOL)useSSL {
@@ -128,7 +122,7 @@ static NSString * const kKFS3Key = @"kKFS3Key";
     uploadRequest.key = key;
     uploadRequest.body = [NSURL fileURLWithPath:filePath];
     uploadRequest.ACL = AWSS3ObjectCannedACLPublicRead;
-    
+
     [[self.transferManager upload:uploadRequest] continueWithBlock:^id(AWSTask *task) {
         if (task.error) {
             [self s3RequestFailedForFileName:fileName withError:task.error];
@@ -137,7 +131,6 @@ static NSString * const kKFS3Key = @"kKFS3Key";
         }
         return nil;
     }];
-
 }
 
 - (NSString*) awsKeyForStream:(KFS3Stream*)stream fileName:(NSString*)fileName {
@@ -156,7 +149,7 @@ static NSString * const kKFS3Key = @"kKFS3Key";
     uploadRequest.ACL = AWSS3ObjectCannedACLPublicRead;
     uploadRequest.cacheControl = @"max-age=0";
     uploadRequest.contentLength = @(data.length);
-    
+
     [[self.s3 putObject:uploadRequest] continueWithBlock:^id(AWSTask *task) {
         if (task.error) {
             [self s3RequestFailedForFileName:manifestName withError:task.error];
@@ -187,6 +180,7 @@ static NSString * const kKFS3Key = @"kKFS3Key";
         DDLogVerbose(@"Manifest path not yet available");
         return;
     }
+
     [files enumerateObjectsUsingBlock:^(NSString *fileName, NSUInteger idx, BOOL *stop) {
         NSArray *components = [fileName componentsSeparatedByString:@"."];
         NSString *filePrefix = [components firstObject];
@@ -194,10 +188,8 @@ static NSString * const kKFS3Key = @"kKFS3Key";
         if ([fileExtension isEqualToString:@"ts"]) {
             NSString *uploadState = [_files objectForKey:fileName];
             if (!uploadState) {
-                NSString *manifestSnapshot = [self manifestSnapshot];
-                [self.manifestGenerator appendFromLiveManifest:manifestSnapshot];
                 NSUInteger segmentIndex = [self indexForFilePrefix:filePrefix];
-                NSDictionary *segmentInfo = @{kManifestKey: manifestSnapshot,
+                NSDictionary *segmentInfo = @{kManifestKey: [self manifestSnapshot],
                                               kFileNameKey: fileName,
                                               kFileStartDateKey: [NSDate date]};
                 DDLogVerbose(@"new ts file detected: %@", fileName);
@@ -207,6 +199,8 @@ static NSString * const kKFS3Key = @"kKFS3Key";
             }
         } else if ([fileExtension isEqualToString:@"jpg"]) {
             [self uploadThumbnail:fileName];
+        } else if ([fileExtension isEqualToString:@"m3u8"]) {
+            [self.manifestGenerator appendFromLiveManifest:[self manifestSnapshot]];
         }
     }];
 }
@@ -222,7 +216,7 @@ static NSString * const kKFS3Key = @"kKFS3Key";
         uploadRequest.key = key;
         uploadRequest.body = [NSURL fileURLWithPath:filePath];
         uploadRequest.ACL = AWSS3ObjectCannedACLPublicRead;
-        
+
         [[self.transferManager upload:uploadRequest] continueWithBlock:^id(AWSTask *task) {
             if (task.error) {
                 [self s3RequestFailedForFileName:fileName withError:task.error];
@@ -288,7 +282,6 @@ static NSString * const kKFS3Key = @"kKFS3Key";
                     _manifestReady = YES;
                 }
                 if (self.isFinishedRecording && _queuedSegments.count == 0) {
-                    self.hasUploadedFinalManifest = YES;
                     if (self.delegate && [self.delegate respondsToSelector:@selector(uploader:vodManifestReadyAtURL:)]) {
                         [self.delegate uploader:self vodManifestReadyAtURL:[self manifestURL]];
                     }
@@ -325,6 +318,7 @@ static NSString * const kKFS3Key = @"kKFS3Key";
             [_queuedSegments removeObjectForKey:@(_nextSegmentIndexToUpload)];
             NSUInteger queuedSegmentsCount = _queuedSegments.count;
             [self updateManifestWithString:manifest manifestName:@"index.m3u8"];
+
             _nextSegmentIndexToUpload++;
             [self uploadNextSegment];
             if (self.delegate && [self.delegate respondsToSelector:@selector(uploader:didUploadSegmentAtURL:uploadSpeed:numberOfQueuedSegments:)]) {
